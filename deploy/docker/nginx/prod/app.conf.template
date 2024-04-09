@@ -1,0 +1,128 @@
+server {
+    listen 80;
+    listen [::]:80;
+
+    client_max_body_size 100M;
+
+    proxy_read_timeout 300;
+    proxy_connect_timeout 300;
+    proxy_send_timeout 300;
+
+    server_name ${VACHAN_DOMAIN}  www.${VACHAN_DOMAIN};
+    server_tokens off;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://${VACHAN_DOMAIN}$request_uri;
+#    proxy_pass http://vachan-api:8000;
+    }
+}
+
+server {
+    listen 443 default_server ssl http2;
+    listen [::]:443 ssl http2;
+
+    server_name ${VACHAN_DOMAIN};
+
+    client_max_body_size 100M;
+
+    proxy_read_timeout 300;
+    proxy_connect_timeout 300;
+    proxy_send_timeout 300;
+
+    ssl_certificate /etc/nginx/ssl/live/${VACHAN_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/live/${VACHAN_DOMAIN}/privkey.pem;
+
+
+    #location /v2/auth/ {
+    #    proxy_pass http://vachan-access:8007;    
+    #}
+
+    location /v2/ai/model/ {
+        proxy_pass http://vachan-ai:8006;
+    }
+
+    location /v2/cms/rest/ {
+        proxy_pass http://vachan-cms-rest:8005;    
+    }
+    
+    location /graphql/ {
+        proxy_pass http://vachan-cms-graphql:8004;    
+    }
+    
+    location /v2/text/translate/token-based/ {
+        proxy_pass http://vachan-tbt:8003;    
+    }
+
+    location /v2/nlp/ {
+        proxy_pass http://vachan-tbt:8003;    
+    }
+    
+
+   
+    location / {
+        proxy_pass http://vachan-api:8000;
+    }
+}
+
+server {
+    listen       3301;
+    server_name  _;
+
+    gzip on;
+    gzip_static on;
+    gzip_types text/plain text/css application/json application/x-javascript text/xml application/xml application/xml+rss text/javascript;
+    gzip_proxied  any;
+    gzip_vary on;
+    gzip_comp_level 6;
+    gzip_buffers 16 8k;
+    gzip_http_version 1.1;
+
+    # to handle uri issue 414 from nginx
+    client_max_body_size 24M;
+    large_client_header_buffers 8 128k;
+
+    location / {
+        if ( $uri = '/index.html' ) {
+            add_header Cache-Control no-store always;
+        }
+        root   /usr/share/nginx/html;
+        index  index.html index.htm;
+        try_files $uri $uri/ /index.html;
+    }
+
+    location ~ ^/api/(v1|v3)/logs/(tail|livetail){
+        proxy_pass http://query-service:8080;
+        proxy_http_version 1.1;
+
+        # connection will be closed if no data is read for 600s between successive read operations
+        proxy_read_timeout 600s;
+
+        # dont buffer the data send it directly to client.
+        proxy_buffering off;
+        proxy_cache off;
+    }
+
+    location /api {
+        proxy_pass http://query-service:8080/api;
+        # connection will be closed if no data is read for 600s between successive read operations
+        proxy_read_timeout 600s; 
+    }
+
+    # redirect server error pages to the static page /50x.html
+    #
+    error_page   500 502 503 504  /50x.html;
+    location = /50x.html {
+        root   /usr/share/nginx/html;
+    }
+}
+
+
+
+
+
+
+

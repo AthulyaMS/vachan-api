@@ -1,0 +1,119 @@
+version: "3.7"
+
+services:
+  kratos-migrate:
+    image: oryd/kratos:v1.0.0
+    environment:
+      - DSN=${VACHAN_AUTH_DATABASE:-postgres://kratos:secret@postgresd:5432/kratos?sslmode=disable&max_conns=20&max_idle_conns=4}
+    volumes:
+      - type: volume
+        source: kratos-sqlite
+        target: /var/lib/sqlite
+        read_only: false
+      - type: bind
+        source: ./email-password
+        target: /etc/config/kratos
+    command: -c /etc/config/kratos/kratos.yml migrate sql -e --yes
+    restart: on-failure
+    depends_on:
+      - postgresd
+    networks:
+      - vachan-auth-net
+
+  postgresd:
+    image: postgres:9.6
+    ports:
+      - "5432:5432"
+    restart: always
+    environment:
+      - POSTGRES_USER=${VACHAN_KRATOS_DB_USER:-kratos}
+      - POSTGRES_PASSWORD=${VACHAN_KRATOS_DB_PASSWORD:-secret}
+      - POSTGRES_DB=${VACHAN_KRATOS_DB_NAME:-kratos}
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    networks:
+      - vachan-auth-net
+    volumes: 
+      - kratos-postgres-vol:/var/lib/postgresql/data
+
+
+  # offen backup
+  offen-backup_kratos_daily: &backup_service
+    image: offen/docker-volume-backup:latest
+    restart: always
+    environment: &backup_environment #Daily 00 : 00
+      BACKUP_CRON_EXPRESSION: "0 0 * * *"
+      BACKUP_FILENAME: backup-kratos-daily-%Y-%m-%dT%H-%M-%S.tar.gz
+      BACKUP_SOURCES: /docker_kratos-postgres
+      BACKUP_PRUNING_PREFIX: backup-kratos-daily-
+      BACKUP_RETENTION_DAYS: 5
+    depends_on:
+      - kratos-migrate
+    volumes:
+      - kratos-postgres-vol:/docker_kratos-postgres:ro
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/backups:/archive
+    networks:
+      - vachan-auth-net
+
+  offen-backup_kratos_week:
+    <<: *backup_service
+    environment:
+      <<: *backup_environment
+      # SAT 00 : 00
+      BACKUP_CRON_EXPRESSION: "0 0 * * 6"
+      BACKUP_FILENAME: backup-kratos-week-%Y-%m-%dT%H-%M-%S.tar.gz
+      BACKUP_SOURCES: /docker_kratos-postgres
+      BACKUP_PRUNING_PREFIX: backup-kratos-week-
+      BACKUP_RETENTION_DAYS: 49
+    depends_on:
+      - kratos-migrate
+    volumes:
+      - kratos-postgres-vol:/docker_kratos-postgres:ro
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/backups:/archive
+    networks:
+      - vachan-auth-net
+
+  offen-backup_kratos_month:
+    <<: *backup_service
+    environment:
+      <<: *backup_environment
+      # monthly on 28  00 : 00
+      BACKUP_CRON_EXPRESSION: "0 0 28 * *"
+      BACKUP_FILENAME: backup-kratos-month-%Y-%m-%dT%H-%M-%S.tar.gz
+      BACKUP_SOURCES: /docker_kratos-postgres
+      BACKUP_PRUNING_PREFIX: backup-kratos-month-
+      BACKUP_RETENTION_DAYS: 365
+    depends_on:
+      - kratos-migrate
+    volumes:
+      - kratos-postgres-vol:/docker_kratos-postgres:ro
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/backups:/archive
+    networks:
+      - vachan-auth-net
+
+  offen-backup_kratos_year:
+    <<: *backup_service
+    environment:
+      <<: *backup_environment
+      # yearly DEC 31 day 00 : 00
+      BACKUP_CRON_EXPRESSION: "0 0 31 12 *"
+      BACKUP_FILENAME: backup-kratos-year-%Y-%m-%dT%H-%M-%S.tar.gz
+      BACKUP_SOURCES: /docker_kratos-postgres
+      BACKUP_PRUNING_PREFIX: backup-kratos-year-
+      BACKUP_RETENTION_DAYS: 2555
+    depends_on:
+      - kratos-migrate
+    volumes:
+      - kratos-postgres-vol:/docker_kratos-postgres:ro
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/backups:/archive
+    networks:
+      - vachan-auth-net
+
+networks:
+  vachan-auth-net:
+volumes:
+  kratos-sqlite:
+  kratos-postgres-vol:
